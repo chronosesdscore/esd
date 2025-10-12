@@ -1,0 +1,180 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CHRONOS ESD Score</title>
+  <style>
+    :root { --bg:#0b1320; --card:#111a2b; --muted:#9fb3ca; --text:#e8f0ff; --accent:#4aa3ff; }
+    *{box-sizing:border-box} body{margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial; background:linear-gradient(180deg,#0b1320,#0b1320 60%,#0e172a); color:var(--text)}
+    .wrap{max-width:960px; margin:40px auto; padding:0 16px}
+    .card{background:var(--card); border:1px solid rgba(255,255,255,.06); border-radius:18px; padding:22px; box-shadow:0 10px 30px rgba(0,0,0,.35)}
+    h1{font-size:28px; margin:0 0 8px; letter-spacing:.2px}
+    h2{font-size:18px; font-weight:600; color:var(--muted); margin:8px 0 18px}
+    label{display:block; font-weight:600; margin:14px 0 6px}
+    .row{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px}
+    .row3{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px}
+    input,select{width:100%; padding:12px 10px; border-radius:12px; border:1px solid rgba(255,255,255,.12); background:#0c1424; color:var(--text)}
+    .muted{color:var(--muted); font-size:13px}
+    .result{font-size:44px; font-weight:800; letter-spacing:.5px}
+    .badge{display:inline-block; padding:4px 10px; border-radius:999px; background:rgba(74,163,255,.15); color:#cfe6ff; font-size:12px; font-weight:700; border:1px solid rgba(74,163,255,.35)}
+    .foot{margin-top:18px; font-size:12px; color:var(--muted)}
+    .split{display:flex; gap:18px; align-items:flex-end; flex-wrap:wrap}
+    .btn{appearance:none; border:1px solid rgba(255,255,255,.18); background:#0c1424; color:var(--text); padding:10px 14px; border-radius:12px; cursor:pointer}
+    .btn:hover{border-color:var(--accent)}
+    .code{white-space:pre-wrap; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#0a1220; border:1px solid rgba(255,255,255,.08); border-radius:12px; padding:12px; color:#d6e4ff}
+    @media (max-width:760px){.row,.row3{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>CHRONOS ESD Score</h1>
+      <h2>Predictive tool for colorectal ESD procedure duration</h2>
+
+      <div class="row">
+        <div>
+          <label>Mean dissection speed (mm²/min)</label>
+          <input id="speed" type="number" step="0.1" placeholder="e.g., 32" />
+          <div class="muted">Auto-classified as slow &lt; 20, intermediate 21–39, fast &gt; 39.</div>
+        </div>
+        <div>
+          <label>Speed class (auto)</label>
+          <input id="speedClass" type="text" readonly />
+        </div>
+      </div>
+
+      <div class="row3" style="margin-top:8px">
+        <div>
+          <label>Lesion size (mm)</label>
+          <input id="size" type="number" step="1" placeholder="e.g., 40" />
+        </div>
+        <div>
+          <label>Suspected fibrosis</label>
+          <select id="fibrosis">
+            <option value="no">No</option>
+            <option value="yes">Yes</option>
+          </select>
+        </div>
+        <div>
+          <label>Location</label>
+          <select id="location">
+            <option>Rectum</option>
+            <option>Sigmoid colon</option>
+            <option>Left colon</option>
+            <option>Splenic flexure</option>
+            <option>Transverse colon</option>
+            <option>Hepatic flexure</option>
+            <option>Right colon</option>
+            <option>Ileocecal valve</option>
+            <option>Caecum</option>
+            <option>Appendix</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="split" style="margin-top:20px">
+        <div>
+          <div class="muted">Predicted duration</div>
+          <div class="result"><span id="pred">—</span> <span class="badge">min</span></div>
+        </div>
+        <button class="btn" id="calcBtn">Calculate</button>
+        <button class="btn" id="resetBtn">Reset</button>
+      </div>
+
+      <div class="foot">Coefficients derived from the CHRONOS model (multivariate linear regression).</div>
+    </div>
+
+    <div class="card" style="margin-top:22px">
+      <h2>Model coefficients (read-only)</h2>
+      <p class="muted">Linear model: <span class="code">duration_min = β0 + βsize·size_mm + βfibrosis·I(fibrosis) + βspeed[class] + βloc[location]</span></p>
+      <div class="code" id="cfgBlock"></div>
+      <p class="foot">This single HTML file can be hosted via GitHub Pages and cited as the CHRONOS ESD Score web calculator.</p>
+    </div>
+  </div>
+
+<script>
+  const CFG = {
+    intercept: -26.0,
+    beta_size_per_mm: 1.3,
+    beta_fibrosis_yes: 11.8,
+    beta_speed: {
+      slow: 54.1,
+      intermediate: 40.2,
+      fast: 0.0
+    },
+    beta_location: {
+      "Rectum": 0,
+      "Sigmoid colon": 0.9,
+      "Left colon": 4.1,
+      "Splenic flexure": 31.0,
+      "Transverse colon": 7.4,
+      "Hepatic flexure": 31.0,
+      "Right colon": 6.0,
+      "Ileocecal valve": 15.0,
+      "Caecum": 13.4,
+      "Appendix": 31.6
+    }
+  };
+
+  const speedInput = document.getElementById('speed');
+  const speedClassInput = document.getElementById('speedClass');
+  const sizeInput = document.getElementById('size');
+  const fibrosisSel = document.getElementById('fibrosis');
+  const locationSel = document.getElementById('location');
+  const predEl = document.getElementById('pred');
+  const calcBtn = document.getElementById('calcBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const cfgBlock = document.getElementById('cfgBlock');
+
+  function classifySpeed(v){
+    if (!isFinite(v)) return '';
+    if (v < 20) return 'slow';
+    if (v <= 39) return 'intermediate';
+    return 'fast';
+  }
+  function formatMinutes(x){ return isFinite(x) ? Math.round(x) : '—'; }
+
+  function calc(){
+    const speed = parseFloat(speedInput.value);
+    const spClass = classifySpeed(speed);
+    speedClassInput.value = spClass || '';
+
+    const size = parseFloat(sizeInput.value);
+    const fib = fibrosisSel.value === 'yes' ? 1 : 0;
+    const loc = locationSel.value;
+
+    if (!isFinite(size)) { predEl.textContent = '—'; return; }
+
+    const y = CFG.intercept
+            + CFG.beta_size_per_mm * size
+            + (fib ? CFG.beta_fibrosis_yes : 0)
+            + (spClass ? CFG.beta_speed[spClass] : 0)
+            + (CFG.beta_location[loc] ?? 0);
+
+    predEl.textContent = formatMinutes(y);
+  }
+
+  function renderCfg(){
+    cfgBlock.textContent = JSON.stringify(CFG, null, 2);
+  }
+
+  speedInput.addEventListener('input', calc);
+  sizeInput.addEventListener('input', calc);
+  fibrosisSel.addEventListener('change', calc);
+  locationSel.addEventListener('change', calc);
+  calcBtn.addEventListener('click', calc);
+  resetBtn.addEventListener('click', ()=>{
+    speedInput.value = '';
+    speedClassInput.value = '';
+    sizeInput.value = '';
+    fibrosisSel.value = 'no';
+    locationSel.value = 'Rectum';
+    predEl.textContent = '—';
+  });
+
+  renderCfg();
+</script>
+</body>
+</html>
